@@ -1,60 +1,37 @@
-﻿<?php
-$page_title = 'Admin • Orders';
-include '../includes/header.php';
+<?php
+  $page_title = 'Admin • Orders';
+  if (session_status() === PHP_SESSION_NONE) { session_start(); }
+  require_once __DIR__ . '/../includes/db_connect.php';
+  $flash = [ 'type' => null, 'message' => '' ];
+
+  // Handle inline status update
+  if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_status'])) {
+    try {
+      if (!($conn instanceof mysqli)) { throw new Exception('DB not available'); }
+      $orderId = isset($_POST['order_id']) ? (int)$_POST['order_id'] : 0;
+      $newStatus = trim($_POST['status'] ?? '');
+      $allowed = ['pending','paid','processing','shipped','delivered','cancelled'];
+      if ($orderId <= 0 || !in_array($newStatus, $allowed, true)) { throw new Exception('Invalid input'); }
+      if (!($st = $conn->prepare('UPDATE orders SET status=? WHERE id=?'))) { throw new Exception('Failed to prepare update'); }
+      $st->bind_param('si', $newStatus, $orderId);
+      if (!$st->execute()) { throw new Exception('Failed to update: ' . $st->error); }
+      $st->close();
+      $flash = [ 'type' => 'success', 'message' => 'Order #'.$orderId.' status updated to "'.$newStatus.'"' ];
+    } catch (Throwable $e) {
+      $flash = [ 'type' => 'error', 'message' => $e->getMessage() ];
+    }
+  }
 ?>
-
-<style>
-/* Admin page styling consistent with Employees.php */
-.admin-header {
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 10px;
-}
-.admin-nav {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-top: 8px;
-}
-.admin-nav a {
-  padding: 8px 10px;
-  border-radius: 10px;
-  color: #cbd5e1;
-  border: 1px solid var(--border);
-  background: #0b1220;
-}
-.admin-nav a.active, .admin-nav a:hover {
-  background: rgba(124,58,237,0.12);
-  color: #fff;
-}
-
-.quick-actions { display: flex; gap: 10px; flex-wrap: wrap; margin: 12px 0; }
-.quick-actions .btn { padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; background: #0b1220; color: var(--text); }
-.quick-actions .btn.primary { background: var(--accent); border-color: transparent; }
-.quick-actions .btn.primary:hover { background: var(--accent-600); }
-
-.card { border: 1px solid var(--border); background: var(--card); border-radius: 12px; overflow: hidden; margin-bottom: 16px; }
-.card-head { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.card-body { padding: 14px; color: var(--muted); }
-
-.stats { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
-.stat { flex: 1; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; }
-.stat .k { font-size: 20px; font-weight: bold; }
-.stat .l { font-size: 12px; color: var(--muted); }
-
-table { width: 100%; border-collapse: collapse; font-size: 14px; }
-th, td { padding: 12px 14px; border-bottom: 1px solid var(--border); text-align: left; white-space: nowrap; }
-thead th { color: var(--muted); font-weight: 600; }
-
-input, select { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: #0b1220; color: var(--text); width:100%; margin-bottom:10px; }
-button { cursor: pointer; }
-
-.modal { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.45); z-index: 60; }
-.modal.open { display: flex; }
-.modal .content { width: min(680px, 92vw); background: var(--card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
-.modal .content header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.modal .content .body { padding: 14px; }
-</style>
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><?php echo htmlspecialchars($page_title); ?></title>
+    <link rel="stylesheet" href="../assets/css/global.css">
+    <link rel="stylesheet" href="../assets/css/admin.css">
+  </head>
+  <body>
 
 <main class="container">
   <!-- Admin navigation -->
@@ -66,6 +43,7 @@ button { cursor: pointer; }
       <a href="users.php">Users</a>
       <a href="products.php">Products</a>
       <a href="orders.php" class="active">Orders</a>
+      <a href="inventory.php">Inventory</a>
       <a href="reports.php">Reports</a>
       <a href="settings.php">Settings</a>
       <a href="../client/logout.php">Logout</a>
@@ -74,110 +52,155 @@ button { cursor: pointer; }
 
   <!-- Quick Actions -->
   <section class="quick-actions">
-    <button class="btn primary" data-tab="add">Add Order</button>
-    <button class="btn primary" data-tab="status">Update Status</button>
+    <button class="btn primary" data-tab="manage">Manage Orders</button>
     <button class="btn primary" data-tab="customers">View Customers</button>
   </section>
 
   <!-- Tabs -->
-  <section class="tab-content" id="tab-add">
+  <section class="tab-content" id="tab-manage">
     <div class="card">
-      <div class="card-head"><strong>Add Order</strong></div>
+      <div class="card-head"><strong>Manage Orders</strong></div>
       <div class="card-body">
-        <form>
-          <input type="text" placeholder="Customer Name" required />
-          <input type="text" placeholder="Product Name" required />
-          <input type="number" placeholder="Quantity" required />
-          <input type="number" placeholder="Price" required />
-          <button class="btn primary">Save Order</button>
-        </form>
+        <?php if ($flash['type']): ?>
+          <div style="margin-bottom:10px; padding:10px; border-radius:8px; border:1px solid var(--border); background: <?= $flash['type']==='success' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)' ?>; color:#fff;">
+            <?= htmlspecialchars($flash['message']) ?>
+          </div>
+        <?php endif; ?>
+        <?php
+          $orders = [];
+          if (isset($conn) && $conn instanceof mysqli) {
+            $sql = 'SELECT id, user_id, is_guest, email, first_name, last_name, status, total_amount, created_at FROM orders ORDER BY id DESC LIMIT 200';
+            if ($rs = $conn->query($sql)) {
+              while ($row = $rs->fetch_assoc()) { $orders[] = $row; }
+              $rs->close();
+            }
+          }
+        ?>
+        <div style="margin:0 0 12px;">
+          <!-- Search by Order ID -->
+          <div style="display:flex; gap:8px; margin-bottom:8px;">
+            <input type="number" id="search-order-by-id" placeholder="Search by Order ID" style="width:200px;" />
+            <button class="btn primary" type="button" onclick="searchOrderById()">Search by ID</button>
+            <button class="btn" type="button" onclick="clearOrderSearch()">Clear</button>
+          </div>
+          <!-- Real-time filter -->
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <input type="text" id="filter-order-customer" placeholder="Filter by Customer Name" style="flex:1; min-width:150px;" />
+            <select id="filter-order-status" style="flex:1; min-width:150px;">
+              <option value="">Filter by Status</option>
+              <option value="pending">Pending</option>
+              <option value="paid">Paid</option>
+              <option value="processing">Processing</option>
+              <option value="shipped">Shipped</option>
+              <option value="delivered">Delivered</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+            <input type="date" id="filter-order-date" placeholder="Filter by Date" style="flex:1; min-width:150px;" />
+          </div>
+        </div>
+        <?php if (empty($orders)): ?>
+          <div>No orders found.</div>
+        <?php else: ?>
+          <table>
+            <thead>
+              <tr>
+                <th>Order ID</th>
+                <th>Customer</th>
+                <th>Status</th>
+                <th>Total</th>
+                <th>Created</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="orders-tbody">
+              <?php foreach ($orders as $o):
+                $customer = trim(($o['first_name'] ?? '') . ' ' . ($o['last_name'] ?? ''));
+                if ($customer === '') { $customer = $o['email'] ?? 'Guest'; }
+                $dateOnly = substr($o['created_at'] ?? '', 0, 10);
+              ?>
+              <tr data-id="<?= (int)$o['id'] ?>" data-customer="<?= htmlspecialchars(strtolower($customer)) ?>" data-status="<?= htmlspecialchars($o['status']) ?>" data-date="<?= htmlspecialchars($dateOnly) ?>">
+                <td>#<?= (int)$o['id'] ?></td>
+                <td><?= htmlspecialchars($customer) ?></td>
+                <td>
+                  <form method="post" style="display:flex; gap:8px; align-items:center;">
+                    <input type="hidden" name="update_status" value="1" />
+                    <input type="hidden" name="order_id" value="<?= (int)$o['id'] ?>" />
+                    <select name="status">
+                      <?php $opts=['pending','paid','processing','shipped','delivered','cancelled']; foreach ($opts as $st): ?>
+                        <option value="<?= $st ?>" <?= ($o['status']===$st ? 'selected' : '') ?>><?= $st ?></option>
+                      <?php endforeach; ?>
+                    </select>
+                    <button class="btn" type="submit">Save</button>
+                  </form>
+                </td>
+                <td>$<?= number_format((float)($o['total_amount'] ?? 0), 2) ?></td>
+                <td><?= htmlspecialchars($o['created_at'] ?? '') ?></td>
+                <td><a class="btn" href="detailsa.php?id=<?= (int)$o['id'] ?>">View</a></td>
+              </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php endif; ?>
       </div>
     </div>
   </section>
 
-  <section class="tab-content" id="tab-status" style="display:none;">
-    <div class="card">
-      <div class="card-head"><strong>Update Order Status</strong></div>
-      <div class="card-body">
-        <table>
-          <thead>
-            <tr>
-              <th>Order ID</th><th>Customer</th><th>Product</th><th>Status</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>O-1001</td>
-              <td>Jane Cooper</td>
-              <td>T-Shirt</td>
-              <td><select><option>Pending</option><option>Completed</option><option>Cancelled</option></select></td>
-              <td><button class="btn primary">Update</button></td>
-            </tr>
-            <tr>
-              <td>O-1002</td>
-              <td>Robert Fox</td>
-              <td>Laptop</td>
-              <td><select><option>Pending</option><option>Completed</option><option>Cancelled</option></select></td>
-              <td><button class="btn primary">Update</button></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
 
   <section class="tab-content" id="tab-customers" style="display:none;">
     <div class="card">
       <div class="card-head"><strong>View Customers</strong></div>
       <div class="card-body">
-        <table>
-          <thead>
-            <tr>
-              <th>Customer Name</th><th>Email</th><th>Total Orders</th><th>Last Order</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td>Jane Cooper</td>
-              <td>jane.cooper@example.com</td>
-              <td>5</td>
-              <td>2025-09-20</td>
-            </tr>
-            <tr>
-              <td>Robert Fox</td>
-              <td>r.fox@example.com</td>
-              <td>3</td>
-              <td>2025-09-18</td>
-            </tr>
-          </tbody>
-        </table>
+        <?php
+          $customers = [];
+          if (isset($conn) && $conn instanceof mysqli) {
+            // Aggregate by effective email (orders.email fallback to users.email) and show latest name
+            $sql = "SELECT 
+                      COALESCE(NULLIF(o.email,''), u.email) AS email,
+                      MAX(TRIM(CONCAT(COALESCE(o.first_name,''),' ',COALESCE(o.last_name,'')))) AS customer_name,
+                      COUNT(*) AS total_orders,
+                      MAX(o.created_at) AS last_order
+                    FROM orders o
+                    LEFT JOIN users u ON u.id = o.user_id
+                    GROUP BY email
+                    ORDER BY last_order DESC";
+            if ($rs = $conn->query($sql)) {
+              while ($row = $rs->fetch_assoc()) { $customers[] = $row; }
+              $rs->close();
+            }
+          }
+        ?>
+        <div style="margin:0 0 12px;">
+          <!-- Real-time filter -->
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <input type="text" id="filter-customer-name" placeholder="Filter by Customer Name" style="flex:1; min-width:200px;" />
+            <input type="text" id="filter-customer-email" placeholder="Filter by Email" style="flex:1; min-width:200px;" />
+          </div>
+        </div>
+        <?php if (empty($customers)): ?>
+          <div>No customers found.</div>
+        <?php else: ?>
+          <table>
+            <thead>
+              <tr>
+                <th>Customer Name</th><th>Email</th><th>Total Orders</th><th>Last Order</th>
+              </tr>
+            </thead>
+            <tbody id="customers-tbody">
+              <?php foreach ($customers as $c): ?>
+              <tr data-name="<?= htmlspecialchars(strtolower($c['customer_name'] ?? '')) ?>" data-email="<?= htmlspecialchars(strtolower($c['email'] ?? '')) ?>">
+                <td><?= htmlspecialchars(($c['customer_name'] ?? '') !== '' ? $c['customer_name'] : ($c['email'] ?? '—')) ?></td>
+                <td><?= htmlspecialchars($c['email'] ?: '—') ?></td>
+                <td><?= (int)($c['total_orders'] ?? 0) ?></td>
+                <td><?= htmlspecialchars($c['last_order'] ?? '') ?></td>
+              </tr>
+              <?php endforeach; ?>
+            </tbody>
+          </table>
+        <?php endif; ?>
       </div>
     </div>
   </section>
-
-  <!-- Quick Stats -->
-  <section style="margin-top: 20px;">
-    <h2>Quick Stats</h2>
-    <div class="stats">
-      <div class="stat"><div class="k">0</div><div class="l">Total Orders</div></div>
-      <div class="stat"><div class="k">0</div><div class="l">Pending</div></div>
-      <div class="stat"><div class="k">0</div><div class="l">Completed</div></div>
-      <div class="stat"><div class="k">$0.00</div><div class="l">Total Revenue</div></div>
-    </div>
-  </section>
-
-  <section class="cards">
-    <div class="card">
-      <div class="card-head"><strong>Recent Orders</strong></div>
-      <div class="card-body">No data yet.</div>
-    </div>
-    <div class="card">
-      <div class="card-head"><strong>Pending Orders</strong></div>
-      <div class="card-body">No data yet.</div>
-    </div>
-  </section>
 </main>
-
 <script>
 // Tab switching
 const buttons = document.querySelectorAll('.quick-actions .btn');
@@ -188,6 +211,192 @@ buttons.forEach(btn => {
     tabs.forEach(tab => tab.style.display = (tab.id === 'tab-' + target) ? 'block' : 'none');
   });
 });
+
+// Search Order by ID
+function searchOrderById() {
+  const searchId = document.getElementById('search-order-by-id').value.trim();
+  
+  if (searchId === '') {
+    alert('Please enter an Order ID');
+    return;
+  }
+  
+  const ordersRows = document.querySelectorAll('#orders-tbody tr');
+  let found = false;
+  
+  ordersRows.forEach(row => {
+    if (!row.hasAttribute('data-id')) {
+      return;
+    }
+    
+    const rowId = row.getAttribute('data-id');
+    
+    if (rowId === searchId) {
+      row.style.display = '';
+      found = true;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+  
+  // Show/hide "no results" message
+  const tbody = document.getElementById('orders-tbody');
+  let noResultsRow = tbody.querySelector('.no-results-row');
+  
+  if (!found) {
+    if (!noResultsRow) {
+      noResultsRow = document.createElement('tr');
+      noResultsRow.className = 'no-results-row';
+      noResultsRow.innerHTML = '<td colspan="6" style="text-align:center; padding:20px;">No order found with ID #' + searchId + '</td>';
+      tbody.appendChild(noResultsRow);
+    } else {
+      noResultsRow.innerHTML = '<td colspan="6" style="text-align:center; padding:20px;">No order found with ID #' + searchId + '</td>';
+    }
+    noResultsRow.style.display = '';
+  } else if (noResultsRow) {
+    noResultsRow.style.display = 'none';
+  }
+  
+  // Clear real-time filters when searching by ID
+  document.getElementById('filter-order-customer').value = '';
+  document.getElementById('filter-order-status').value = '';
+  document.getElementById('filter-order-date').value = '';
+}
+
+function clearOrderSearch() {
+  document.getElementById('search-order-by-id').value = '';
+  document.getElementById('filter-order-customer').value = '';
+  document.getElementById('filter-order-status').value = '';
+  document.getElementById('filter-order-date').value = '';
+  
+  const ordersRows = document.querySelectorAll('#orders-tbody tr');
+  ordersRows.forEach(row => {
+    if (row.hasAttribute('data-id')) {
+      row.style.display = '';
+    }
+  });
+  
+  const tbody = document.getElementById('orders-tbody');
+  const noResultsRow = tbody.querySelector('.no-results-row');
+  if (noResultsRow) {
+    noResultsRow.style.display = 'none';
+  }
+}
+
+// Real-time order filtering
+const filterOrderCustomer = document.getElementById('filter-order-customer');
+const filterOrderStatus = document.getElementById('filter-order-status');
+const filterOrderDate = document.getElementById('filter-order-date');
+
+function filterOrders() {
+  const customerValue = filterOrderCustomer.value.toLowerCase().trim();
+  const statusValue = filterOrderStatus.value;
+  const dateValue = filterOrderDate.value;
+  
+  // Clear ID search when using filters
+  document.getElementById('search-order-by-id').value = '';
+  
+  let visibleCount = 0;
+  const ordersRows = document.querySelectorAll('#orders-tbody tr');
+  
+  ordersRows.forEach(row => {
+    if (!row.hasAttribute('data-id')) {
+      return;
+    }
+    
+    const rowCustomer = row.getAttribute('data-customer') || '';
+    const rowStatus = row.getAttribute('data-status') || '';
+    const rowDate = row.getAttribute('data-date') || '';
+    
+    const customerMatch = customerValue === '' || rowCustomer.includes(customerValue);
+    const statusMatch = statusValue === '' || rowStatus === statusValue;
+    const dateMatch = dateValue === '' || rowDate === dateValue;
+    
+    if (customerMatch && statusMatch && dateMatch) {
+      row.style.display = '';
+      visibleCount++;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+  
+  // Show/hide "no results" message
+  const tbody = document.getElementById('orders-tbody');
+  let noResultsRow = tbody.querySelector('.no-results-row');
+  
+  if (visibleCount === 0 && ordersRows.length > 0) {
+    if (!noResultsRow) {
+      noResultsRow = document.createElement('tr');
+      noResultsRow.className = 'no-results-row';
+      noResultsRow.innerHTML = '<td colspan="6" style="text-align:center; padding:20px;">No orders match your filters.</td>';
+      tbody.appendChild(noResultsRow);
+    }
+    noResultsRow.style.display = '';
+  } else if (noResultsRow) {
+    noResultsRow.style.display = 'none';
+  }
+}
+
+// Add event listeners for real-time filtering
+if (filterOrderCustomer && filterOrderStatus && filterOrderDate) {
+  filterOrderCustomer.addEventListener('input', filterOrders);
+  filterOrderStatus.addEventListener('change', filterOrders);
+  filterOrderDate.addEventListener('change', filterOrders);
+}
+
+// Real-time customer filtering
+const filterCustomerName = document.getElementById('filter-customer-name');
+const filterCustomerEmail = document.getElementById('filter-customer-email');
+const customersRows = document.querySelectorAll('#customers-tbody tr');
+
+function filterCustomers() {
+  const nameValue = filterCustomerName.value.toLowerCase().trim();
+  const emailValue = filterCustomerEmail.value.toLowerCase().trim();
+  
+  let visibleCount = 0;
+  
+  customersRows.forEach(row => {
+    if (!row.hasAttribute('data-name')) {
+      return;
+    }
+    
+    const rowName = row.getAttribute('data-name') || '';
+    const rowEmail = row.getAttribute('data-email') || '';
+    
+    const nameMatch = nameValue === '' || rowName.includes(nameValue);
+    const emailMatch = emailValue === '' || rowEmail.includes(emailValue);
+    
+    if (nameMatch && emailMatch) {
+      row.style.display = '';
+      visibleCount++;
+    } else {
+      row.style.display = 'none';
+    }
+  });
+  
+  // Show/hide "no results" message
+  const tbody = document.getElementById('customers-tbody');
+  let noResultsRow = tbody.querySelector('.no-results-row');
+  
+  if (visibleCount === 0 && customersRows.length > 0) {
+    if (!noResultsRow) {
+      noResultsRow = document.createElement('tr');
+      noResultsRow.className = 'no-results-row';
+      noResultsRow.innerHTML = '<td colspan="4" style="text-align:center; padding:20px;">No customers match your filters.</td>';
+      tbody.appendChild(noResultsRow);
+    }
+    noResultsRow.style.display = '';
+  } else if (noResultsRow) {
+    noResultsRow.style.display = 'none';
+  }
+}
+
+// Add event listeners for real-time filtering
+if (filterCustomerName && filterCustomerEmail) {
+  filterCustomerName.addEventListener('input', filterCustomers);
+  filterCustomerEmail.addEventListener('input', filterCustomers);
+}
 </script>
 
-<?php include '../includes/footer.php'; ?>
+  </body>
+</html>

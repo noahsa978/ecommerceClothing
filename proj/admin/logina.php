@@ -1,3 +1,67 @@
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
+// Start session and handle admin login
+session_start();
+require_once __DIR__ . '/../includes/db_connect.php'; // provides $conn (mysqli)
+
+$error = null;
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $email = isset($_POST['email']) ? trim($_POST['email']) : '';
+  $password = isset($_POST['password']) ? $_POST['password'] : '';
+
+  if ($email === '' || $password === '') {
+    $error = 'Please provide both email and password.';
+  } else if ($conn instanceof mysqli) {
+    // Lookup user by email with admin role only
+    $stmt = $conn->prepare('SELECT id, username, email, upassword, role, fullname FROM users WHERE email = ? AND role = "admin" LIMIT 1');
+    if ($stmt) {
+      $stmt->bind_param('s', $email);
+      $stmt->execute();
+      $result = $stmt->get_result();
+      $user = $result ? $result->fetch_assoc() : null;
+      $stmt->close();
+
+      if ($user) {
+        $stored = $user['upassword'];
+        $ok = false;
+        // Support hashed passwords (recommended)
+        if (is_string($stored) && strlen($stored) >= 20) {
+          $ok = password_verify($password, $stored);
+        }
+        // Fallback to plain match if not hashed
+        if (!$ok && hash('sha256', $password) === $stored) {
+          $ok = true; // support sha256 stored hash (optional)
+        }
+        if (!$ok && $password === $stored) {
+          $ok = true;
+        }
+
+        if ($ok && $user['role'] === 'admin') {
+          // Set session for admin
+          $_SESSION['admin_id'] = $user['id'];
+          $_SESSION['admin_email'] = $user['email'];
+          $_SESSION['admin_name'] = $user['fullname'] ?: $user['username'];
+          // Also set a general email key for flexible fallbacks
+          $_SESSION['email'] = $user['email'];
+          // Redirect to admin dashboard
+          header('Location: dashboard.php');
+          exit;
+        } else {
+          $error = 'Invalid credentials or not authorized.';
+        }
+      } else {
+        $error = 'Invalid credentials or not authorized.';
+      }
+    } else {
+      $error = 'Database error. Please try again later.';
+    }
+  } else {
+    $error = 'Database connection not available.';
+  }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -156,7 +220,12 @@
         <p class="subtitle">
           Access the dashboard with your administrator credentials.
         </p>
-        <form method="post" action="#">
+        <?php if (!empty($error)) { ?>
+          <div style="margin:10px 0; padding:10px 12px; border:1px solid #7f1d1d; background:#3f1d1d; color:#fecaca; border-radius:10px; font-size:14px;">
+            <?php echo htmlspecialchars($error); ?>
+          </div>
+        <?php } ?>
+        <form method="post" action="">
           <div>
             <label for="email">Email</label>
             <input

@@ -1,5 +1,56 @@
 <?php
 $page_title = 'Contact — Ecom clothing';
+require_once __DIR__ . '/../includes/db_connect.php';
+
+// Load company settings from database
+$company = [
+  'company_name' => 'EcomClothing',
+  'address' => 'Bole Road, Addis Ababa, Ethiopia',
+  'contact_email' => 'support@ecomclothing.com',
+  'phone' => '+251 11 123 4567',
+];
+if (isset($conn) && $conn instanceof mysqli) {
+  if ($res = $conn->query('SELECT company_name, address, contact_email, phone FROM company_settings WHERE id=1 LIMIT 1')) {
+    if ($row = $res->fetch_assoc()) {
+      $company = array_merge($company, $row);
+    }
+    $res->free();
+  }
+}
+
+// Load support settings (FAQs, Shipping, Returns) from database
+$support = [
+  'faqs_json' => json_encode([
+    ['q' => 'What sizes do you offer?', 'a' => 'We offer sizes XS–XXL for most items. Size guides are available on each product page.'],
+    ['q' => 'How long will my order take?', 'a' => 'Orders are processed in 1–2 business days. Addis Ababa deliveries typically arrive in 1–3 days, other cities 2–5 days.'],
+    ['q' => 'Can I change or cancel my order?', 'a' => 'If your order hasn\'t shipped, contact us ASAP and we\'ll do our best to update or cancel it.'],
+  ]),
+  'shipping_points_json' => json_encode([
+    'Addis Ababa: 1–3 business days.',
+    'Adama and other cities: 2–5 business days.',
+    'Standard shipping: ETB 150.',
+    'Free shipping on orders over ETB 2000!'
+  ]),
+  'returns_points_json' => json_encode([
+    '30-day return window for unworn items with tags.',
+    'Easy exchanges for size/color within 30 days.',
+    'Contact support to initiate a return.'
+  ]),
+];
+if (isset($conn) && $conn instanceof mysqli) {
+  if ($res = $conn->query('SELECT faqs_json, shipping_points_json, returns_points_json FROM support_settings WHERE id=1 LIMIT 1')) {
+    if ($row = $res->fetch_assoc()) {
+      $support = array_merge($support, $row);
+    }
+    $res->free();
+  }
+}
+
+// Decode JSON data
+$faqsArr = json_decode($support['faqs_json'] ?? '[]', true) ?: [];
+$shippingArr = json_decode($support['shipping_points_json'] ?? '[]', true) ?: [];
+$returnsArr = json_decode($support['returns_points_json'] ?? '[]', true) ?: [];
+
 include '../includes/header.php';
 ?>
 
@@ -32,24 +83,19 @@ include '../includes/header.php';
 
 <main class="container contact-page">
   <h1 style="margin: 0 0 24px; font-size: 28px">Help & Support</h1>
-
   <div class="contact-grid">
     <!-- Help & Support / FAQs -->
     <section class="contact-card">
       <h2>FAQs</h2>
       <div class="faq" id="faq-list">
-        <div class="faq-item">
-          <div class="faq-q">What sizes do you offer? <span>+</span></div>
-          <div class="faq-a">We offer sizes XS–XXL for most items. Size guides are available on each product page.</div>
-        </div>
-        <div class="faq-item">
-          <div class="faq-q">How long will my order take? <span>+</span></div>
-          <div class="faq-a">Orders are processed in 1–2 business days. Addis Ababa deliveries typically arrive in 1–3 days, other cities 2–5 days.</div>
-        </div>
-        <div class="faq-item">
-          <div class="faq-q">Can I change or cancel my order? <span>+</span></div>
-          <div class="faq-a">If your order hasn’t shipped, contact us ASAP and we’ll do our best to update or cancel it.</div>
-        </div>
+        <?php if (empty($faqsArr)) { ?>
+          <p style="color: #9ca3af;">No FAQs available at the moment.</p>
+        <?php } else { foreach ($faqsArr as $faq) { ?>
+          <div class="faq-item">
+            <div class="faq-q"><?= htmlspecialchars($faq['q'] ?? '') ?> <span>+</span></div>
+            <div class="faq-a"><?= htmlspecialchars($faq['a'] ?? '') ?></div>
+          </div>
+        <?php } } ?>
       </div>
     </section>
 
@@ -57,55 +103,54 @@ include '../includes/header.php';
     <section class="contact-card">
       <h2>Shipping & Returns</h2>
       <p><b style="color:var(--text)">Shipping</b></p>
-      <ul class="list">
-        <li>Addis Ababa: 1–3 business days.</li>
-        <li>Adama and other cities: 2–5 business days.</li>
-        <li>Free shipping on orders over $100.</li>
-      </ul>
+      <?php if (empty($shippingArr)) { ?>
+        <p style="color: #9ca3af;">No shipping information available.</p>
+      <?php } else { ?>
+        <ul class="list">
+          <?php foreach ($shippingArr as $point) { ?>
+            <li><?= htmlspecialchars($point) ?></li>
+          <?php } ?>
+        </ul>
+      <?php } ?>
       <p><b style="color:var(--text)">Returns</b></p>
-      <ul class="list">
-        <li>30-day return window for unworn items with tags.</li>
-        <li>Easy exchanges for size/color within 30 days.</li>
-        <li>Contact support to initiate a return.</li>
-      </ul>
+      <?php if (empty($returnsArr)) { ?>
+        <p style="color: #9ca3af;">No returns information available.</p>
+      <?php } else { ?>
+        <ul class="list">
+          <?php foreach ($returnsArr as $point) { ?>
+            <li><?= htmlspecialchars($point) ?></li>
+          <?php } ?>
+        </ul>
+      <?php } ?>
     </section>
 
-    <!-- Contact Form -->
+    <!-- Contact Information -->
     <section class="contact-card" style="grid-column: 1 / -1">
-      <h2>Contact Form</h2>
-      <form id="contact-form" onsubmit="return submitContact(event)">
-        <div class="form-row">
-          <div class="form-group">
-            <label for="name">Full Name</label>
-            <input type="text" id="name" required placeholder="Your name">
-          </div>
-          <div class="form-group">
-            <label for="email">Email</label>
-            <input type="email" id="email" required placeholder="you@example.com">
-          </div>
+      <h2>Contact Us</h2>
+      <p style="margin-bottom: 20px; line-height: 1.8;">For any inquiries, support, or assistance, please feel free to reach out to us through the following channels:</p>
+      
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; margin-top: 16px;">
+        <div style="background: #0b1220; border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+          <h3 style="margin: 0 0 12px; font-size: 18px; color: var(--accent);">📞 Phone</h3>
+          <p style="margin: 0; color: #cbd5e1; font-size: 16px;"><?= htmlspecialchars($company['phone']) ?></p>
+          <p style="margin: 4px 0 0; color: #9ca3af; font-size: 14px;">Mon-Fri: 9:00 AM - 6:00 PM</p>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="topic">Topic</label>
-            <select id="topic" required>
-              <option value="">Select a topic</option>
-              <option>Order Support</option>
-              <option>Shipping & Returns</option>
-              <option>Product Question</option>
-              <option>Other</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="order-number">Order # (optional)</label>
-            <input type="text" id="order-number" placeholder="#12345">
-          </div>
+        
+        <div style="background: #0b1220; border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+          <h3 style="margin: 0 0 12px; font-size: 18px; color: var(--accent);">✉️ Email</h3>
+          <p style="margin: 0; color: #cbd5e1; font-size: 16px;"><?= htmlspecialchars($company['contact_email']) ?></p>
+          <p style="margin: 4px 0 0; color: #9ca3af; font-size: 14px;">We'll respond within 24 hours</p>
         </div>
-        <div class="form-group">
-          <label for="message">Message</label>
-          <textarea id="message" required placeholder="How can we help?"></textarea>
+        
+        <div style="background: #0b1220; border: 1px solid var(--border); border-radius: 12px; padding: 20px;">
+          <h3 style="margin: 0 0 12px; font-size: 18px; color: var(--accent);">📍 Address</h3>
+          <p style="margin: 0; color: #cbd5e1; font-size: 16px;"><?= htmlspecialchars($company['address']) ?></p>
         </div>
-        <button class="btn" type="submit">Send Message</button>
-      </form>
+      </div>
+      
+      <p style="margin-top: 24px; padding: 16px; background: rgba(124, 58, 237, 0.1); border: 1px solid rgba(124, 58, 237, 0.3); border-radius: 10px; color: #cbd5e1;">
+        <strong style="color: var(--text);">💡 Tip:</strong> For faster assistance with order-related inquiries, please have your order number ready when contacting us.
+      </p>
     </section>
   </div>
 </main>
@@ -119,24 +164,6 @@ include '../includes/header.php';
       q.querySelector('span').textContent = item.classList.contains('open') ? '−' : '+';
     });
   });
-
-  // Contact form submit (placeholder)
-  function submitContact(e) {
-    e.preventDefault();
-    const name = document.getElementById('name').value.trim();
-    const email = document.getElementById('email').value.trim();
-    const topic = document.getElementById('topic').value;
-    const message = document.getElementById('message').value.trim();
-
-    if (!name || !email || !topic || !message) {
-      alert('Please fill in all required fields.');
-      return false;
-    }
-
-    alert('Thanks! Your message has been sent.');
-    (document.getElementById('contact-form')).reset();
-    return false;
-  }
 </script>
 
 <?php include '../includes/footer.php'; ?>

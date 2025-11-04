@@ -1,5 +1,35 @@
 <?php
-$page_title = 'About Us — Ecom clothing';
+require_once __DIR__ . '/../includes/db_connect.php';
+
+// Load company settings (name)
+$company = [ 'company_name' => 'Ecom clothing' ];
+if (isset($conn) && $conn instanceof mysqli) {
+  if ($res = $conn->query('SELECT company_name FROM company_settings WHERE id=1 LIMIT 1')) {
+    if ($row = $res->fetch_assoc()) { $company = array_merge($company, $row); }
+  }
+}
+
+// Load about content
+$about = [
+  'our_company' => 'We’re a customer-first apparel brand crafting modern essentials with quality, comfort, and sustainability in mind.',
+  'our_history' => 'Founded in 2020 by a small team of designers and engineers, we set out to remove the friction between people and great clothing.',
+  'our_mission' => 'Empower customers to look and feel their best with thoughtfully designed essentials—delivered with exceptional service and honest pricing.',
+  'our_vision'  => 'To be the most trusted everyday apparel brand in Africa and beyond, known for quality, sustainability, and a remarkable shopping experience.',
+  'values_json' => json_encode([
+    ['title' => 'Customer Obsession', 'text' => 'We design, build, and improve with your feedback at the center.'],
+    ['title' => 'Quality', 'text' => 'Materials and craftsmanship that stand up to real life—wash after wash.'],
+    ['title' => 'Transparency', 'text' => 'Clear pricing, clear communication, clear policies.'],
+    ['title' => 'Sustainability', 'text' => 'Responsible sourcing and packaging with an eye on long-term impact.'],
+    ['title' => 'Inclusivity', 'text' => 'Styles and sizes for everyone, because great clothing is for all.'],
+  ]),
+];
+if (isset($conn) && $conn instanceof mysqli) {
+  if ($res = $conn->query('SELECT our_company, our_history, our_mission, our_vision, values_json FROM about_settings WHERE id=1 LIMIT 1')) {
+    if ($row = $res->fetch_assoc()) { $about = array_merge($about, $row); }
+  }
+}
+
+$page_title = 'About Us — ' . htmlspecialchars($company['company_name']);
 include '../includes/header.php';
 ?>
 
@@ -24,35 +54,34 @@ include '../includes/header.php';
 
 <main class="container about-page">
   <div class="about-hero">
-    <h1 style="margin: 0 0 10px; font-size: 28px">About Ecom clothing</h1>
-    <p style="color:#cbd5e1; margin:0">We’re a customer-first apparel brand crafting modern essentials with quality, comfort, and sustainability in mind.</p>
+    <h1 style="margin: 0 0 10px; font-size: 28px">About <?= htmlspecialchars($company['company_name']) ?></h1>
+    <p style="color:#cbd5e1; margin:0"><?= nl2br(htmlspecialchars($about['our_company'] ?? '')) ?></p>
   </div>
 
   <div class="about-grid">
     <section class="about-card">
       <h2>Our Company</h2>
-      <p>Ecom clothing is an online-first clothing company focused on timeless designs and everyday wear. From premium cotton tees to durable outerwear, we build products that last—responsibly and affordably.</p>
+      <p><?= nl2br(htmlspecialchars($about['our_company'] ?? '')) ?></p>
     </section>
     <section class="about-card">
       <h2>Our History</h2>
-      <p>Founded in 2020 by a small team of designers and engineers, we set out to remove the friction between people and great clothing. What started as a limited tee collection has grown into a full catalog loved by thousands of customers.</p>
+      <p><?= nl2br(htmlspecialchars($about['our_history'] ?? '')) ?></p>
     </section>
     <section class="about-card">
       <h2>Our Mission</h2>
-      <p>Empower customers to look and feel their best with thoughtfully designed essentials—delivered with exceptional service and honest pricing.</p>
+      <p><?= nl2br(htmlspecialchars($about['our_mission'] ?? '')) ?></p>
     </section>
     <section class="about-card">
       <h2>Our Vision</h2>
-      <p>To be the most trusted everyday apparel brand in Africa and beyond, known for quality, sustainability, and a remarkable shopping experience.</p>
+      <p><?= nl2br(htmlspecialchars($about['our_vision'] ?? '')) ?></p>
     </section>
     <section class="about-card" style="grid-column: 1 / -1">
       <h2>Our Values</h2>
       <ul class="values-list">
-        <li><b>Customer Obsession:</b> We design, build, and improve with your feedback at the center.</li>
-        <li><b>Quality:</b> Materials and craftsmanship that stand up to real life—wash after wash.</li>
-        <li><b>Transparency:</b> Clear pricing, clear communication, clear policies.</li>
-        <li><b>Sustainability:</b> Responsible sourcing and packaging with an eye on long-term impact.</li>
-        <li><b>Inclusivity:</b> Styles and sizes for everyone, because great clothing is for all.</li>
+        <?php $vals = json_decode($about['values_json'] ?? '[]', true) ?: []; ?>
+        <?php foreach ($vals as $v): $t = trim($v['title'] ?? ''); $tx = trim($v['text'] ?? ''); if ($t==='' && $tx==='') continue; ?>
+          <li><b><?= htmlspecialchars($t) ?>:</b> <?= htmlspecialchars($tx) ?></li>
+        <?php endforeach; ?>
       </ul>
     </section>
   </div>

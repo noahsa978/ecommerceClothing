@@ -1,6 +1,62 @@
 <?php
 $page_title = 'Ecom Clothing — Home';
+require_once __DIR__ . '/../includes/db_connect.php';
+// Load banner path from site_assets
+$bannerRel = '';
+if ($conn instanceof mysqli) {
+  if ($res = $conn->query('SELECT banner_path FROM site_assets WHERE id=1 LIMIT 1')) {
+    if ($row = $res->fetch_assoc()) { $bannerRel = (string)($row['banner_path'] ?? ''); }
+  }
+}
 include '../includes/header.php';
+  // Load 4 newest products with price range and an image
+  $newArrivals = [];
+  if ($conn instanceof mysqli) {
+    $sql = "
+      SELECT p.id, p.name, p.base_price, p.image, p.created_at,
+             COALESCE(SUM(v.stock), 0) AS total_stock,
+             MIN(COALESCE(v.price, p.base_price)) AS min_price,
+             MAX(COALESCE(v.price, p.base_price)) AS max_price,
+             GROUP_CONCAT(DISTINCT v.color ORDER BY v.color SEPARATOR ',') AS colors,
+             GROUP_CONCAT(DISTINCT v.size ORDER BY FIELD(v.size,'XS','S','M','L','XL','XXL')) AS sizes,
+             MAX(COALESCE(NULLIF(TRIM(v.image), ''), NULL)) AS variant_image
+        FROM products p
+        LEFT JOIN product_variants v ON v.product_id = p.id
+       GROUP BY p.id
+       ORDER BY p.created_at DESC
+       LIMIT 4
+    ";
+    if ($res = $conn->query($sql)) {
+      while ($row = $res->fetch_assoc()) { $newArrivals[] = $row; }
+      $res->free();
+    }
+  }
+  // Load 4 best rated products (by average rating)
+  $bestRated = [];
+  if ($conn instanceof mysqli) {
+    $sqlBest = "
+      SELECT p.id, p.name, p.base_price, p.image,
+             COALESCE(SUM(v.stock), 0) AS total_stock,
+             MIN(COALESCE(v.price, p.base_price)) AS min_price,
+             MAX(COALESCE(v.price, p.base_price)) AS max_price,
+             GROUP_CONCAT(DISTINCT v.color ORDER BY v.color SEPARATOR ',') AS colors,
+             GROUP_CONCAT(DISTINCT v.size ORDER BY FIELD(v.size,'XS','S','M','L','XL','XXL')) AS sizes,
+             MAX(COALESCE(NULLIF(TRIM(v.image), ''), NULL)) AS variant_image,
+             AVG(r.rating) AS avg_rating,
+             COUNT(r.id) AS review_count
+        FROM products p
+        LEFT JOIN product_variants v ON v.product_id = p.id
+        LEFT JOIN reviews r ON r.product_id = p.id
+       GROUP BY p.id
+      HAVING review_count > 0
+       ORDER BY avg_rating DESC, review_count DESC, p.created_at DESC
+       LIMIT 4
+    ";
+    if ($resB = $conn->query($sqlBest)) {
+      while ($row = $resB->fetch_assoc()) { $bestRated[] = $row; }
+      $resB->free();
+    }
+  }
 ?>
 
 <style>
@@ -43,6 +99,8 @@ include '../includes/header.php';
     padding: 22px;
     min-height: 220px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    display: grid;
+    grid-template-rows: auto 1fr; /* tag then image area */
   }
   .hero-card .tag {
     display: inline-block;
@@ -54,13 +112,22 @@ include '../includes/header.php';
   }
   .hero-card .illus {
     margin-top: 14px;
-    height: 160px;
+    height: 100%;
     border-radius: 12px;
     background: repeating-linear-gradient(
       135deg,
       rgba(255, 255, 255, 0.08) 0 10px,
       rgba(255, 255, 255, 0.02) 10px 20px
     );
+  }
+  .hero-card .banner-img {
+    margin-top: 14px;
+    height: 100%;
+    width: 100%;
+    object-fit: cover;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    display: block;
   }
 
   /* Sections */
@@ -95,15 +162,59 @@ include '../includes/header.php';
     );
   }
   .info {
-    padding: 12px;
+    padding: 14px;
   }
   .title {
-    margin: 0 0 4px;
+    margin: 0 0 8px;
     font-weight: 700;
+    font-size: 16px;
   }
   .price {
-    color: #cbd5e1;
+    color: #10b981;
+    font-weight: 700;
+    font-size: 18px;
+    margin: 0 0 10px;
+  }
+  .meta-row {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .stock {
+    font-size: 13px;
+    color: #94a3b8;
+  }
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .badge-mini {
+    display: inline-block;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(124, 58, 237, 0.15);
+    border: 1px solid rgba(124, 58, 237, 0.3);
+    color: #c4b5fd;
+  }
+  .btn-view {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    background: linear-gradient(135deg, #7c3aed, #10b981);
+    color: #fff;
+    text-align: center;
+    text-decoration: none;
+    border-radius: 8px;
     font-weight: 600;
+    font-size: 14px;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .btn-view:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.4);
   }
   .badge {
     display: inline-block;
@@ -140,85 +251,120 @@ include '../includes/header.php';
             Women, and Kids — curated looks for everyone.
           </p>
           <div class="cta">
-            <a class="btn primary" href="#">Shop New Arrivals</a>
-            <a class="btn" href="#">Explore Best Sellers</a>
+            <a class="btn primary" href="#new-arrivals">Shop New Arrivals</a>
+            <a class="btn" href="#best-rated">Best Rated Products</a>
           </div>
         </div>
         <div class="hero-card">
           <span class="tag">Limited Release</span>
-          <div class="illus"></div>
+          <?php $bannerUrl = $bannerRel ? ('../' . ltrim($bannerRel, '/')) : ''; ?>
+          <?php if ($bannerUrl !== '') { ?>
+            <img class="banner-img" src="<?= htmlspecialchars($bannerUrl) ?>" alt="Promotional banner" />
+          <?php } else { ?>
+            <div class="illus"></div>
+          <?php } ?>
         </div>
       </div>
     </section>
 
-    <section class="section">
+    <section class="section" id="new-arrivals">
       <div class="container">
         <h2>Featured — New Arrivals</h2>
         <div class="grid">
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Essential Tee</p>
-              <p class="price">$24.00</p>
-            </div>
-          </article>
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Relaxed Hoodie</p>
-              <p class="price">$59.00</p>
-            </div>
-          </article>
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Denim Jacket</p>
-              <p class="price">$89.00</p>
-            </div>
-          </article>
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Athletic Joggers</p>
-              <p class="price">$49.00</p>
-            </div>
-          </article>
+          <?php if (empty($newArrivals)) { ?>
+            <article class="card" style="grid-column: 1 / -1;">
+              <div class="info" style="padding:16px; color:#9ca3af;">No new products yet.</div>
+            </article>
+          <?php } else { foreach ($newArrivals as $p) {
+            $img = $p['image'] ?: ($p['variant_image'] ?: null);
+            if (!$img && ($conn instanceof mysqli)) {
+              $pid = (int)$p['id'];
+              if ($resImg = $conn->query("SELECT image_url FROM product_images WHERE product_id={$pid} ORDER BY sort_order ASC, id ASC LIMIT 1")) {
+                if ($rimg = $resImg->fetch_assoc()) { $img = $rimg['image_url']; }
+              }
+            }
+            $imgUrl = $img ? ((stripos($img,'http')===0) ? $img : ('../' . ltrim($img,'/'))) : '';
+            $min = (float)($p['min_price'] ?? $p['base_price']);
+            $max = (float)($p['max_price'] ?? $p['base_price']);
+            $priceLabel = ($min > 0 && $max > 0)
+              ? (($min == $max) ? ('ETB ' . number_format($min,2)) : ('ETB ' . number_format($min,2) . '–ETB ' . number_format($max,2)))
+              : '';
+            $stock = (int)($p['total_stock'] ?? 0);
+            $colors = array_filter(array_unique(array_map('trim', explode(',', (string)($p['colors'] ?? '')))));
+            $sizes = array_filter(array_unique(array_map('trim', explode(',', (string)($p['sizes'] ?? '')))));
+          ?>
+            <article class="card">
+              <a href="./details.php?id=<?= (int)$p['id'] ?>" class="thumb" style="display:block; text-decoration:none; color:inherit;">
+                <?php if ($imgUrl) { ?>
+                  <img src="<?= htmlspecialchars($imgUrl) ?>" alt="<?= htmlspecialchars($p['name']) ?>" style="width:100%; height:100%; object-fit:cover; display:block;" />
+                <?php } ?>
+              </a>
+              <div class="info">
+                <p class="title"><a href="./details.php?id=<?= (int)$p['id'] ?>" style="color:inherit; text-decoration:none;">
+                  <?= htmlspecialchars($p['name']) ?></a></p>
+                <?php if ($priceLabel !== '') { ?><p class="price"><?= $priceLabel ?></p><?php } ?>
+                <div class="meta-row">
+                  <span class="stock">📦 In stock: <?= $stock ?></span>
+                  <div class="badges">
+                    <?php if (!empty($colors)) { ?><span class="badge-mini">🎨 <?= htmlspecialchars(implode(', ', array_slice($colors,0,3))) ?><?= count($colors)>3?' +more':'' ?></span><?php } ?>
+                    <?php if (!empty($sizes)) { ?><span class="badge-mini">📏 <?= htmlspecialchars(implode(', ', $sizes)) ?></span><?php } ?>
+                  </div>
+                </div>
+                <a href="./details.php?id=<?= (int)$p['id'] ?>" class="btn-view">View Details</a>
+              </div>
+            </article>
+          <?php } } ?>
         </div>
       </div>
     </section>
 
-    <section class="section">
+    <section class="section" id="best-rated">
       <div class="container">
-        <h2>Recommended For You</h2>
+        <h2>Best Rated Products</h2>
         <div class="grid">
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Classic Chinos</p>
-              <p class="price">$54.00</p>
-            </div>
-          </article>
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Oversized Sweater</p>
-              <p class="price">$64.00</p>
-            </div>
-          </article>
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Puffer Jacket</p>
-              <p class="price">$129.00</p>
-            </div>
-          </article>
-          <article class="card">
-            <div class="thumb"></div>
-            <div class="info">
-              <p class="title">Canvas Sneakers</p>
-              <p class="price">$69.00</p>
-            </div>
-          </article>
+          <?php if (empty($bestRated)) { ?>
+            <article class="card" style="grid-column: 1 / -1;">
+              <div class="info" style="padding:16px; color:#9ca3af;">No rated products yet.</div>
+            </article>
+          <?php } else { foreach ($bestRated as $p) {
+            $img = $p['image'] ?: ($p['variant_image'] ?: null);
+            if (!$img && ($conn instanceof mysqli)) {
+              $pid = (int)$p['id'];
+              if ($resImg = $conn->query("SELECT image_url FROM product_images WHERE product_id={$pid} ORDER BY sort_order ASC, id ASC LIMIT 1")) {
+                if ($rimg = $resImg->fetch_assoc()) { $img = $rimg['image_url']; }
+              }
+            }
+            $imgUrl = $img ? ((stripos($img,'http')===0) ? $img : ('../' . ltrim($img,'/'))) : '';
+            $min = (float)($p['min_price'] ?? $p['base_price']);
+            $max = (float)($p['max_price'] ?? $p['base_price']);
+            $priceLabel = ($min > 0 && $max > 0)
+              ? (($min == $max) ? ('ETB ' . number_format($min,2)) : ('ETB ' . number_format($min,2) . '–ETB ' . number_format($max,2)))
+              : '';
+            $stock = (int)($p['total_stock'] ?? 0);
+            $colors = array_filter(array_unique(array_map('trim', explode(',', (string)($p['colors'] ?? '')))));
+            $sizes = array_filter(array_unique(array_map('trim', explode(',', (string)($p['sizes'] ?? '')))));
+          ?>
+            <article class="card">
+              <a href="./details.php?id=<?= (int)$p['id'] ?>" class="thumb" style="display:block; text-decoration:none; color:inherit;">
+                <?php if ($imgUrl) { ?>
+                  <img src="<?= htmlspecialchars($imgUrl) ?>" alt="<?= htmlspecialchars($p['name']) ?>" style="width:100%; height:100%; object-fit:cover; display:block;" />
+                <?php } ?>
+              </a>
+              <div class="info">
+                <p class="title"><a href="./details.php?id=<?= (int)$p['id'] ?>" style="color:inherit; text-decoration:none;">
+                  <?= htmlspecialchars($p['name']) ?></a></p>
+                <?php if ($priceLabel !== '') { ?><p class="price"><?= $priceLabel ?></p><?php } ?>
+                <div class="meta-row">
+                  <span class="stock">📦 In stock: <?= $stock ?></span>
+                  <div class="badges">
+                    <?php if (!empty($colors)) { ?><span class="badge-mini">🎨 <?= htmlspecialchars(implode(', ', array_slice($colors,0,3))) ?><?= count($colors)>3?' +more':'' ?></span><?php } ?>
+                    <?php if (!empty($sizes)) { ?><span class="badge-mini">📏 <?= htmlspecialchars(implode(', ', $sizes)) ?></span><?php } ?>
+                  </div>
+                </div>
+                <a href="./details.php?id=<?= (int)$p['id'] ?>" class="btn-view">View Details</a>
+              </div>
+            </article>
+          <?php } } ?>
         </div>
       </div>
     </section>

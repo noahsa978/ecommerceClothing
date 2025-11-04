@@ -1,3 +1,42 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) { session_start(); }
+require_once __DIR__ . '/../includes/db_connect.php';
+$login_error = '';
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+  $email = trim($_POST['email'] ?? '');
+  $password = $_POST['password'] ?? '';
+  if ($email === '' || $password === '') {
+    $login_error = 'Please enter email and password.';
+  } elseif ($conn instanceof mysqli) {
+    $stmt = $conn->prepare('SELECT id, username, email, upassword, role, fullname, address, phone FROM users WHERE email=? LIMIT 1');
+    $stmt->bind_param('s', $email);
+    if ($stmt->execute()) {
+      $res = $stmt->get_result();
+      if ($row = $res->fetch_assoc()) {
+        if (password_verify($password, $row['upassword'])) {
+          $_SESSION['user_id'] = (int)$row['id'];
+          $_SESSION['user'] = [
+            'email' => $row['email'],
+            'role' => $row['role'],
+            'fullname' => $row['fullname'],
+            'address' => $row['address'],
+            'phone' => $row['phone'],
+            'username' => $row['username'],
+          ];
+          header('Location: ./profile.php');
+          exit;
+        }
+      }
+      $login_error = 'Invalid email or password.';
+    } else {
+      $login_error = 'Login failed. Please try again.';
+    }
+    $stmt->close();
+  } else {
+    $login_error = 'Database connection not available.';
+  }
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -98,7 +137,7 @@
         font-weight: 800;
         letter-spacing: 0.02em;
         cursor: pointer;
-        transition: transform 0.02s ease, background 0.15s ease,
+        transition: transform 0.02s
           box-shadow 0.15s ease;
         box-shadow: 0 8px 20px rgba(16, 185, 129, 0.35);
       }
@@ -143,10 +182,20 @@
           <span class="badge">CUSTOMER</span>
           <h1>Welcome back</h1>
         </div>
+        <div style="display:flex; gap:8px; align-items:center; margin:-6px 0 12px; font-size:14px; color:#9ca3af">
+          <span>Login type:</span>
+          <span style="padding:4px 10px; border-radius:999px; background:rgba(16,185,129,0.15); color:#10b981; font-weight:700;">Customer</span>
+          <a class="link" href="./logina.php" style="padding:4px 10px; border:1px solid #1f2937; border-radius:999px;">Admin</a>
+        </div>
         <p class="subtitle">
           Sign in to continue shopping and track your orders.
         </p>
-        <form method="post" action="#">
+        <?php if (!empty($login_error)) { ?>
+          <div style="background: rgba(239,68,68,0.1); border: 1px solid #ef4444; color: #fecaca; padding: 10px 12px; border-radius: 10px; margin-bottom: 12px;">
+            <?= htmlspecialchars($login_error); ?>
+          </div>
+        <?php } ?>
+        <form method="post" action="">
           <div class="form-group">
             <label for="email">Email</label>
             <input
@@ -173,11 +222,14 @@
               <input type="checkbox" name="remember" />
               Remember me
             </label>
-            <a class="link" href="#">Forgot password?</a>
-          </div>
+            <a class="link" href="forgot_password.php">Forgot password?</a>
+            </div>
           <div class="actions">
-            <button class="btn" type="submit">Sign in</button>
+            <button class="btn" type="submit">Login</button>
           </div>
+          <p class="subtitle" style="margin:6px 0 0;">
+            <a class="link" href="./guest.php">Browse as guest</a>
+          </p>
           <p class="subtitle" style="margin-top:8px">Don't have an account? <a class="link" href="./register.php">Go to register</a></p>
         </form>
       </section>

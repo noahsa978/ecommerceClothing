@@ -1,5 +1,6 @@
 <?php
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
+require_once __DIR__ . '/../includes/db_connect.php';
 
 // Handle registration submission
 $errors = [];
@@ -8,6 +9,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   $last = trim($_POST['last_name'] ?? '');
   $email = trim($_POST['email'] ?? '');
   $password = trim($_POST['password'] ?? '');
+  $confirm = trim($_POST['confirm_password'] ?? '');
   $phone = trim($_POST['phone'] ?? '');
   $city = trim($_POST['city'] ?? '');
   $delivery = trim($_POST['delivery_location'] ?? '');
@@ -16,29 +18,73 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   if ($last === '') $errors[] = 'Last name is required';
   if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) $errors[] = 'Valid email is required';
   if ($password === '' || strlen($password) < 6) $errors[] = 'Password must be at least 6 characters';
+  if ($confirm === '' || $password !== $confirm) $errors[] = 'Passwords do not match';
   if ($phone === '') $errors[] = 'Phone is required';
-  if ($city === '') $errors[] = 'City is required';
-  if ($delivery === '') $errors[] = 'Delivery location is required';
+  // City and delivery location are optional; can be edited later in profile
+  // If provided, validate delivery location against city-specific allowed values
+  $allowed = [
+    'Addis Ababa' => ['Megenagna','Ayat','Mexico','Garment','Betel'],
+    'Adama' => ['Derartu Tulu Square','Adama University'],
+  ];
+  if ($city !== '' && isset($allowed[$city])) {
+    if ($delivery !== '' && !in_array($delivery, $allowed[$city], true)) {
+      $errors[] = 'Invalid delivery location for selected city';
+    }
+  }
 
   if (!$errors) {
-    // In a real app, insert into DB then set session based on inserted user
-    $_SESSION['user_id'] = $_SESSION['user_id'] ?? rand(1000,9999);
-    $_SESSION['user'] = [
-      'first_name' => $first,
-      'last_name'  => $last,
-      'email'      => $email,
-      'phone'      => $phone,
-    ];
-    $_SESSION['shipping'] = [
-      'first_name' => $first,
-      'last_name'  => $last,
-      'phone'      => $phone,
-      'city'       => $city,
-      'delivery_location' => $delivery,
-    ];
+    // Prepare DB insert for users (role = customer)
+    $fullname = trim($first . ' ' . $last);
+    $address = '';
+    if ($city !== '' && $delivery !== '') {
+      $address = $city . ' - ' . $delivery;
+    } elseif ($city !== '') {
+      $address = $city;
+    } elseif ($delivery !== '') {
+      $address = $delivery;
+    }
+    $username = '';
+    if (strpos($email, '@') !== false) {
+      $username = strtolower(preg_replace('/[^a-z0-9_.-]/i', '', explode('@', $email)[0]));
+    }
+    if ($username === '') {
+      $username = strtolower(preg_replace('/[^a-z0-9_.-]/i', '', $first . '.' . $last));
+    }
+    $hash = password_hash($password, PASSWORD_BCRYPT);
 
-    header('Location: ./profile.php');
-    exit;
+    if ($conn instanceof mysqli) {
+      $stmt = $conn->prepare('INSERT INTO users (username, email, upassword, role, fullname, address, phone) VALUES (?,?,?,?,?,?,?)');
+      $role = 'customer';
+      $stmt->bind_param('sssssss', $username, $email, $hash, $role, $fullname, $address, $phone);
+      if ($stmt->execute()) {
+        $new_id = $stmt->insert_id;
+        // Login user and redirect
+        $_SESSION['user_id'] = $new_id;
+        $_SESSION['user'] = [
+          'first_name' => $first,
+          'last_name'  => $last,
+          'email'      => $email,
+          'phone'      => $phone,
+          'role'       => 'customer',
+        ];
+        $_SESSION['shipping'] = [
+          'first_name' => $first,
+          'last_name'  => $last,
+          'phone'      => $phone,
+          'city'       => $city,
+          'delivery_location' => $delivery,
+        ];
+        $stmt->close();
+        header('Location: ./profile.php');
+        exit;
+      } else {
+        // Likely duplicate email or DB error
+        $errors[] = 'Failed to create account. ' . ($stmt->errno == 1062 ? 'Email already exists.' : 'Please try again later.');
+        $stmt->close();
+      }
+    } else {
+      $errors[] = 'Database connection not available.';
+    }
   }
 }
 
@@ -103,13 +149,19 @@ $page_title = 'Register — Ecom clothing';
       </div>
       <div class="form-row">
         <div class="form-group">
+          <label for="confirm_password">Confirm Password</label>
+          <input type="password" id="confirm_password" name="confirm_password" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
           <label for="phone">Phone</label>
           <input type="tel" id="phone" name="phone" value="<?= htmlspecialchars($_POST['phone'] ?? '') ?>" required>
         </div>
         <div class="form-group">
           <label for="city">City</label>
           <?php $selectedCity = $_POST['city'] ?? ''; ?>
-          <select id="city" name="city" required>
+          <select id="city" name="city">
             <option value="">Select City</option>
             <option value="Addis Ababa" <?= ($selectedCity==='Addis Ababa')?'selected':'' ?>>Addis Ababa</option>
             <option value="Adama" <?= ($selectedCity==='Adama')?'selected':'' ?>>Adama</option>
@@ -119,14 +171,14 @@ $page_title = 'Register — Ecom clothing';
       <div class="form-group">
         <label for="delivery_location">Delivery Location</label>
         <?php $selectedLoc = $_POST['delivery_location'] ?? ''; ?>
-        <select id="delivery_location" name="delivery_location" required>
+        <select id="delivery_location" name="delivery_location">
           <option value="">Select Delivery Location</option>
-          <?php if ($selectedCity==='Addis Ababa'): $opts=['Megenagna','Ayat','Mexico','Haile Garment','Betel'];
+          <?php if ($selectedCity==='Addis Ababa'): $opts=['Megenagna','Ayat','Mexico','Garment','Betel'];
             foreach ($opts as $o): $sel = ($selectedLoc===$o)?'selected':''; ?>
-              <option <?= $sel ?>><?= htmlspecialchars($o) ?></option>
+              <option value="<?= htmlspecialchars($o) ?>" <?= $sel ?>><?= htmlspecialchars($o) ?></option>
           <?php endforeach; elseif ($selectedCity==='Adama'): $opts=['Derartu Tulu Square','Adama University'];
             foreach ($opts as $o): $sel = ($selectedLoc===$o)?'selected':''; ?>
-              <option <?= $sel ?>><?= htmlspecialchars($o) ?></option>
+              <option value="<?= htmlspecialchars($o) ?>" <?= $sel ?>><?= htmlspecialchars($o) ?></option>
           <?php endforeach; endif; ?>
         </select>
       </div>
@@ -135,3 +187,45 @@ $page_title = 'Register — Ecom clothing';
     </form>
   </div>
 </main>
+<script>
+  (function() {
+    const cityEl = document.getElementById('city');
+    const delEl = document.getElementById('delivery_location');
+    const allowed = {
+      'Addis Ababa': ['Megenagna','Ayat','Mexico','Garment','Betel'],
+      'Adama': ['Derartu Tulu Square','Adama University']
+    };
+
+    function populateDelivery() {
+      const city = cityEl.value;
+      const current = delEl.value;
+      delEl.innerHTML = '';
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Select Delivery Location';
+      delEl.appendChild(placeholder);
+
+      if (!city || !allowed[city]) {
+        delEl.disabled = true;
+        return;
+      }
+      delEl.disabled = false;
+      allowed[city].forEach(function(o) {
+        const opt = document.createElement('option');
+        opt.value = o;
+        opt.textContent = o;
+        if (o === current) opt.selected = true;
+        delEl.appendChild(opt);
+      });
+    }
+
+    // initialize on load
+    populateDelivery();
+    // update on change
+    cityEl.addEventListener('change', function() {
+      // clear previous selection when city changes
+      delEl.value = '';
+      populateDelivery();
+    });
+  })();
+</script>
